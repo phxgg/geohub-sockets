@@ -33,11 +33,11 @@ server.listen(process.env.PORT || 3001, () => {
   console.log('Running websocket server');
 });
 
-/* TODO: Flow
- * 1. Generate jwt token in GeoHub when user logs in
- * 2. Send jwt token via socket.io connection
- * 3. Use middleware to valiate jwt token
- * 4. If valid, set a property on the socket object (e.g. socket.decoded or socket.user)
+/* TODO: 
+  - handle state of the lobby (waiting, playing, finished)
+    - waiting: players can join the lobby and click 'ready' button. When all players are ready, the game starts
+    - playing: players cannot join the lobby. When all players are finished, the game ends
+    - finished: players cannot join the lobby. Players can see the results of the game
  */
 
 async function getPlayersInLobby(lobbyId) {
