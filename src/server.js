@@ -25,7 +25,7 @@ db.on('error', () => {
 db.once('open', () => {
   console.log('Connected to mongoose')
 });
-var gracefulExit = function() { 
+var gracefulExit = function () {
   db.close().then(() => {
     console.log('Mongoose db connection closed');
     process.exit(0);
@@ -98,9 +98,11 @@ io.on('connection', async function (socket) {
         return;
       }
       // Update the lobby state to 'playing'
-      const onlineLobby = await onlineLobbyModel.findOne({ _id: data.lobbyId }).exec();
-      onlineLobby.state = 'playing';
-      await onlineLobby.save();
+      const onlineLobby = await onlineLobbyModel.findOne({ _id: data.lobbyId, state: 'waiting' }).exec();
+      if (onlineLobby) {
+        onlineLobby.state = 'playing';
+        await onlineLobby.save();
+      }
       console.log(`[${socket.id}] Starting game in lobby ${data.lobbyId}`);
       // Update the lobby
       await updateLobby(data.lobbyId);
