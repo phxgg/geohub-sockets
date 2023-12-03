@@ -72,6 +72,14 @@ io.on('connection', async function (socket) {
 
   socket.on('join:lobby', async function (data) {
     console.log(`[${socket.id}] Joining lobby ${data.lobbyId}`);
+    // FIXME: This will not allow players to rejoin the game after disconnecting
+    // Check if game in lobby has already started
+    const onlineLobby = await onlineLobbyModel.findOne({ _id: data.lobbyId, state: 'waiting' }).exec();
+    if (!onlineLobby) {
+      console.log('Game is not in waiting state');
+      return;
+    }
+
     // Join a room
     socket.join(data.lobbyId);
     // Update the lobby
