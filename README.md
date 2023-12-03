@@ -6,6 +6,7 @@ Create a `.env` file in the root directory of the project.
 
 ```
 MONGODB_URI="mongodb://localhost:27017/geohub"
+JWT_SECRET="secret"
 PORT=3001
 ```
 

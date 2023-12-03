@@ -4,6 +4,7 @@ const mongoose = require('mongoose');
 const bodyParser = require('body-parser');
 const http = require('http');
 const socketServer = require('socket.io');
+const jwt = require('jsonwebtoken');
 
 const app = express();
 
@@ -31,23 +32,52 @@ server.listen(process.env.PORT || 3001, () => {
   console.log('Running websocket server');
 });
 
+/* TODO: Flow
+ * 1. Generate jwt token in GeoHub when user logs in
+ * 2. Send jwt token via socket.io connection
+ * 3. Use middleware to valiate jwt token
+ * 4. If valid, set a property on the socket object (e.g. socket.decoded or socket.user)
+ */
+
 const connections = [];
+io.use(function (socket, next) {
+  if (socket.handshake.query && socket.handshake.query.token) {
+    jwt.verify(socket.handshake.query.token, process.env.JWT_SECRET, function (err, decoded) {
+      if (err) return next(new Error('Authentication error'));
+      socket.decoded = decoded;
+      next();
+    });
+  } else {
+    next(new Error('Authentication error'));
+  }
+})
+
 io.on('connection', async function (socket) {
-  console.log('Connected to Socket ' + socket.id)
+  console.log(`Socket ${socket.id} connected`)
   connections.push(socket);
   socket.on('disconnect', function () {
-    console.log('Disconnected - ' + socket.id);
+    console.log(`Disconnected - ${socket.id}`);
+    connections.splice(connections.indexOf(socket), 1);
   });
 
-  try {
-    const onlineLobbies = await onlineLobbyModel.find({}).exec();
-    if (!onlineLobbies) {
-      console.log('No online lobbies found');
+  socket.on('join:lobby', async function (data) {
+    console.log(`[${socket.id}] Joining lobby ${data.lobbyId}`);
+    // Join a room
+    socket.join(data.lobbyId);
+
+    // Get the lobby from the database
+    const onlineLobby = await onlineLobbyModel.findOne({ _id: data.lobbyId }).exec();
+    if (!onlineLobby) {
+      console.log('No online lobby found');
       return;
     }
-    console.log(onlineLobbies);
-    socket.emit('onlineLobbies', onlineLobbies);
-  } catch (err) {
-    console.log(err);
-  }
+
+    // Add the player to the lobby
+    onlineLobby.players.push(data.player);
+    await onlineLobby.save();
+    socket.emit('update:lobby', onlineLobby);
+
+    // emit to all sockets in the room
+    io.in(data.lobbyId).emit('update:lobby', onlineLobby);
+  });
 });
