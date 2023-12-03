@@ -44,6 +44,8 @@ async function getPlayersInLobby(lobbyId) {
   // get unique players in the room data.lobbyId
   const rooms = io.sockets.adapter.rooms; // this is a Map
   const room = rooms.get(lobbyId); // this is a Set
+  // if room does not exist, return empty array
+  if (!room) return [];
   // get only unique players
   const playersInLobby = [...room].reduce((acc, socketId) => {
     const socket = io.sockets.sockets.get(socketId);
