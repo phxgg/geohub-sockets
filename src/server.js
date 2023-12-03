@@ -8,27 +8,34 @@ const jwt = require('jsonwebtoken');
 
 const app = express();
 
+// load db models
 // const userModel = require('./models/userModel');
 const onlineLobbyModel = require('./models/OnlineLobbyModel');
 
+// express middleware
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 
 // connect to db
 mongoose.connect(process.env.MONGODB_URI, { useNewUrlParser: true, useUnifiedTopology: true });
-
 var db = mongoose.connection;
 db.on('error', () => {
   console.log('FAILED to connect to mongoose');
 });
-
 db.once('open', () => {
   console.log('Connected to mongoose')
 });
+var gracefulExit = function() { 
+  db.close().then(() => {
+    console.log('Mongoose db connection closed');
+    process.exit(0);
+  });
+}
+process.on('SIGINT', gracefulExit).on('SIGTERM', gracefulExit);
 
+// initialize express app & io server
 var server = http.createServer(app);
 var io = socketServer(server);
-
 server.listen(process.env.PORT || 3001, () => {
   console.log('Running websocket server');
 });
@@ -40,6 +47,42 @@ server.listen(process.env.PORT || 3001, () => {
     - finished: players cannot join the lobby. Players can see the results of the game
  */
 
+const connections = [];
+io.use(function (socket, next) {
+  if (socket.handshake.query && socket.handshake.query.accessToken) {
+    jwt.verify(socket.handshake.query.accessToken, process.env.JWT_SECRET, function (err, decoded) {
+      if (err) return next(new Error('Authentication error'));
+      socket.decoded = decoded;
+      next();
+    });
+  } else {
+    next(new Error('Authentication error'));
+  }
+})
+
+io.on('connection', async function (socket) {
+  console.log(`Socket ${socket.id} connected`)
+  connections.push(socket);
+  socket.on('disconnect', function () {
+    console.log(`Disconnected - ${socket.id}`);
+    connections.splice(connections.indexOf(socket), 1);
+  });
+
+  socket.on('join:lobby', async function (data) {
+    console.log(`[${socket.id}] Joining lobby ${data.lobbyId}`);
+    // Join a room
+    socket.join(data.lobbyId);
+    // Update the lobby
+    await updateLobby(data.lobbyId);
+    // Update lobby every time leaves the room
+    socket.on('disconnect', async function () {
+      console.log(`[${socket.id}] Leaving lobby ${data.lobbyId}`);
+      await updateLobby(data.lobbyId);
+    });
+  });
+});
+
+// functions
 async function getPlayersInLobby(lobbyId) {
   // get unique players in the room data.lobbyId
   const rooms = io.sockets.adapter.rooms; // this is a Map
@@ -80,38 +123,3 @@ async function updateLobby(lobbyId) {
     console.log(err);
   }
 }
-
-const connections = [];
-io.use(function (socket, next) {
-  if (socket.handshake.query && socket.handshake.query.accessToken) {
-    jwt.verify(socket.handshake.query.accessToken, process.env.JWT_SECRET, function (err, decoded) {
-      if (err) return next(new Error('Authentication error'));
-      socket.decoded = decoded;
-      next();
-    });
-  } else {
-    next(new Error('Authentication error'));
-  }
-})
-
-io.on('connection', async function (socket) {
-  console.log(`Socket ${socket.id} connected`)
-  connections.push(socket);
-  socket.on('disconnect', function () {
-    console.log(`Disconnected - ${socket.id}`);
-    connections.splice(connections.indexOf(socket), 1);
-  });
-
-  socket.on('join:lobby', async function (data) {
-    console.log(`[${socket.id}] Joining lobby ${data.lobbyId}`);
-    // Join a room
-    socket.join(data.lobbyId);
-    // Update the lobby
-    await updateLobby(data.lobbyId);
-    // Update lobby every time leaves the room
-    socket.on('disconnect', async function () {
-      console.log(`[${socket.id}] Leaving lobby ${data.lobbyId}`);
-      await updateLobby(data.lobbyId);
-    });
-  });
-});
