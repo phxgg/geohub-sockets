@@ -62,6 +62,8 @@ io.use(function (socket, next) {
 
 io.on('connection', async function (socket) {
   console.log(`Socket ${socket.id} connected`)
+  // set ready to false
+  socket.ready = false;
   connections.push(socket);
   socket.on('disconnect', function () {
     console.log(`Disconnected - ${socket.id}`);
@@ -77,6 +79,30 @@ io.on('connection', async function (socket) {
     // Update lobby every time leaves the room
     socket.on('disconnect', async function () {
       console.log(`[${socket.id}] Leaving lobby ${data.lobbyId}`);
+      await updateLobby(data.lobbyId);
+    });
+
+    socket.on('player:ready', async function (data) {
+      // set ready to true
+      socket.ready = data.ready;
+      // Update the lobby
+      await updateLobby(data.lobbyId);
+    });
+
+    socket.on('start:game', async function (data) {
+      // check if all players are ready
+      const playersInLobby = await getPlayersInLobby(data.lobbyId);
+      const allPlayersReady = playersInLobby.every(p => p.ready);
+      if (!allPlayersReady) {
+        console.log('Not all players are ready');
+        return;
+      }
+      // Update the lobby state to 'playing'
+      const onlineLobby = await onlineLobbyModel.findOne({ _id: data.lobbyId }).exec();
+      onlineLobby.state = 'playing';
+      await onlineLobby.save();
+      console.log(`[${socket.id}] Starting game in lobby ${data.lobbyId}`);
+      // Update the lobby
       await updateLobby(data.lobbyId);
     });
   });
@@ -96,6 +122,7 @@ async function getPlayersInLobby(lobbyId) {
       id: socket.decoded.id,
       name: socket.decoded.name,
       avatar: socket.decoded.avatar,
+      ready: socket.ready,
     };
     if (!acc.some(p => p.id === player.id)) {
       acc.push(player);
@@ -116,9 +143,17 @@ async function updateLobby(lobbyId) {
 
     // Get unique players in the room
     const playersInLobby = await getPlayersInLobby(lobbyId);
-
+    // check if all players are ready
+    const allPlayersReady = playersInLobby.every(p => p.ready);
+    // check if game has started
+    const gameStarted = onlineLobby.state === 'playing';
     // emit to all sockets in the room
-    io.in(lobbyId).emit('update:lobby', { ...onlineLobby.toJSON(), playersInLobby });
+    io.in(lobbyId).emit('update:lobby', {
+      ...onlineLobby.toJSON(),
+      gameStarted,
+      playersInLobby,
+      allPlayersReady
+    });
   } catch (err) {
     console.log(err);
   }
