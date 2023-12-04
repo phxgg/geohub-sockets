@@ -9,8 +9,9 @@ const jwt = require('jsonwebtoken');
 const app = express();
 
 // load db models
-// const userModel = require('./models/userModel');
-const onlineLobbyModel = require('./models/OnlineLobbyModel');
+const userModel = require('./models/User');
+const onlineLobbyModel = require('./models/OnlineLobby');
+const gameModel = require('./models/Game');
 
 // express middleware
 app.use(bodyParser.urlencoded({ extended: true }));
@@ -61,29 +62,39 @@ io.use(function (socket, next) {
 })
 
 io.on('connection', async function (socket) {
-  console.log(`Socket ${socket.id} connected`)
+  console.log(`[${socket.id}] Connected`)
   // set ready to false
   socket.ready = false;
   connections.push(socket);
   socket.on('disconnect', function () {
-    console.log(`Disconnected - ${socket.id}`);
+    console.log(`[${socket.id}] Disconnected`);
     connections.splice(connections.indexOf(socket), 1);
   });
 
   socket.on('join:lobby', async function (data) {
-    console.log(`[${socket.id}] Joining lobby ${data.lobbyId}`);
-    // FIXME: This will not allow players to rejoin the game after disconnecting
-    // Check if game in lobby has already started
-    const onlineLobby = await onlineLobbyModel.findOne({ _id: data.lobbyId, state: 'waiting' }).exec();
-    if (!onlineLobby) {
-      console.log('Game is not in waiting state');
+    // Check if lobby exists and state is not 'finished'
+    const onlineLobby = await onlineLobbyModel.findOne({ _id: data.lobbyId }).exec();
+    if (!onlineLobby || onlineLobby.state === 'finished') {
+      console.log(`[${socket.id}] Lobby does not exist or has finished`);
       return;
     }
+    if (onlineLobby.state === 'playing') {
+      // Allow players to rejoin the game if their game had started but they disconnected
+      const game = await gameModel.findOne({ onlineLobbyId: data.lobbyId, userId: socket.decoded.id }).exec();
+      if (!game) {
+        console.log(`[${socket.id}] Game has already started`);
+        return;
+      } else {
+        console.log(`[${socket.id}] Rejoining lobby ${data.lobbyId}`);
+        socket.ready = true;
+      }
+    }
 
-    // Join a room
+    console.log(`[${socket.id}] Joining lobby ${data.lobbyId}`);
+    // Join a room, and update the lobby
     socket.join(data.lobbyId);
-    // Update the lobby
     await updateLobby(data.lobbyId);
+
     // Update lobby every time leaves the room
     socket.on('disconnect', async function () {
       console.log(`[${socket.id}] Leaving lobby ${data.lobbyId}`);
